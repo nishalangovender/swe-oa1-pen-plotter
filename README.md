@@ -32,14 +32,14 @@ swe-oa1-pen-plotter/
 
 ## Installation
 
+### Firmware Setup
+See [FIRMWARE.md](docs/FIRMWARE.md) for complete Arduino IDE setup and firmware upload instructions.
+
+### Python Setup
 ```bash
-# Set up Python environment
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-
-# Upload firmware using Arduino IDE
-# Open firmware/pen_plotter/pen_plotter.ino and upload to RP2040
 ```
 
 ## Usage
@@ -57,6 +57,8 @@ python -m penplotter calibrate
 
 ## Documentation
 
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design
-- [USAGE.md](docs/USAGE.md) - Usage guide
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System design and layer descriptions
+- [FIRMWARE.md](docs/FIRMWARE.md) - Firmware upload and serial protocol reference
+- [CALIBRATION.md](docs/CALIBRATION.md) - Hardware calibration guide
+- [EXAMPLES.md](docs/EXAMPLES.md) - Example firmware setup instructions
 - [ASSIGNMENT.md](docs/ASSIGNMENT.md) - Assignment description
