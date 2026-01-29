@@ -1,6 +1,163 @@
-# Example Firmware Setup
+# Examples
 
-This directory contains the example firmware from the assignment to test the pen plotter hardware.
+This document covers example usage of the pen plotter system, including test scripts and API examples.
+
+## Test Scripts
+
+### Drawing a Rectangle
+
+The `test_rectangle.py` script demonstrates drawing a rotated rectangle:
+
+```bash
+python test_rectangle.py
+```
+
+**Default parameters:**
+- Center: (0, 175)mm - middle of the drawing board
+- Size: 100×100mm (square)
+- Rotation: 45 degrees
+- Step size: 1.0mm interpolation
+
+**What it does:**
+1. Connects to the plotter
+2. Homes the plotter
+3. Draws a 45-degree rotated square
+4. Returns to home position
+
+**Output includes:**
+- Corner coordinates in Cartesian and polar
+- Expected perimeter and interpolation points
+- Workspace validation status
+
+### Drawing a Straight Line
+
+The `test_straight_line.py` script demonstrates the line drawing functionality:
+
+```bash
+# Use default coordinates (0,100) → (50,200)
+python test_straight_line.py
+
+# Use custom coordinates
+python test_straight_line.py 0 100 50 200  # start_x start_y end_x end_y
+```
+
+**Features:**
+- Command-line parameterization of start/end points
+- Workspace boundary validation
+- Timing and progress information
+- Polar coordinate display
+
+## Python API Examples
+
+### Basic Line Drawing
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.drawing import draw_line
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Draw a diagonal line
+    draw_line(plotter, start=(0, 100), end=(50, 200), step_size=1.0)
+
+    plotter.home()
+```
+
+### Rectangle Drawing
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.drawing import draw_rectangle
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Draw a rotated rectangle matching the assignment example
+    draw_rectangle(
+        plotter,
+        center=(0, 175),    # Center position
+        width=100,          # Width in mm
+        height=100,         # Height in mm
+        rotation=45,        # Rotation angle in degrees
+        step_size=1.0       # Interpolation step size
+    )
+
+    plotter.home()
+```
+
+### Drawing Multiple Shapes
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.drawing import draw_rectangle
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Draw three rectangles with different parameters
+    rectangles = [
+        {"center": (0, 100), "width": 60, "height": 60, "rotation": 0},
+        {"center": (0, 175), "width": 100, "height": 100, "rotation": 45},
+        {"center": (0, 280), "width": 80, "height": 40, "rotation": 30},
+    ]
+
+    for rect in rectangles:
+        draw_rectangle(plotter, **rect)
+
+    plotter.home()
+```
+
+### Workspace Validation
+
+```python
+from penplotter.drawing import validate_point
+
+# Validate coordinates before drawing
+try:
+    validate_point(0, 175)    # Valid - center of workspace
+    validate_point(150, 200)  # Raises ValueError - X out of bounds
+except ValueError as e:
+    print(f"Invalid coordinates: {e}")
+```
+
+### Low-Level Hardware Control
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.kinematics import cartesian_to_hardware
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Convert Cartesian coordinates to hardware units
+    x, y = 50, 200  # mm
+    microsteps, adc_value = cartesian_to_hardware(x, y)
+
+    # Send low-level commands
+    plotter.rotate(microsteps)
+    plotter.linear(adc_value)
+
+    # Get current position
+    current_steps, current_adc = plotter.get_pos()
+    print(f"Position: {current_steps} steps, {current_adc} ADC")
+
+    plotter.home()
+```
+
+## Coordinate System
+
+**Origin**: (0, 0) at pen position (bottom center of board)
+- **X-axis**: -140mm to +140mm (left/right)
+- **Y-axis**: 0mm to 350mm (up the board)
+- **Rotation**: 0° points UP (+Y direction)
+  - Positive angles sweep LEFT (toward -X)
+  - Negative angles sweep RIGHT (toward +X)
+  - Range: ±45° from vertical
+
+## Firmware Setup
+
+This section contains the example firmware from the assignment to test the pen plotter hardware.
 
 ## Arduino IDE Setup
 

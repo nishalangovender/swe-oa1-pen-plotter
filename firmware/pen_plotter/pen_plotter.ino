@@ -41,7 +41,7 @@ constexpr uint8_t DEFAULT_IRUN = 8;
 constexpr uint8_t DEFAULT_IHOLD = 8;
 constexpr uint8_t TMC_TOFFRUN = 4;
 
-#define SPEED_RPS 1.0
+#define SPEED_RPS 3.0  // Increased from 1.0 for faster rotation under load
 #define RATIO_ACCEL 5.0
 #define RAIIO_DECEL 5.0
 
@@ -298,9 +298,16 @@ void cmdRotate(long steps)
 {
   stepperDriver.XTARGET(steps);
 
-  // Wait for position reached
+  // Wait for position reached with timeout
+  unsigned long startTime = millis();
+  unsigned long timeout = 30000; // 30 second timeout
+
   while (!stepperDriver.position_reached())
   {
+    if (millis() - startTime > timeout) {
+      Serial.println("ERROR: ROTATE timeout - position not reached");
+      return;
+    }
     delay(10);
   }
 

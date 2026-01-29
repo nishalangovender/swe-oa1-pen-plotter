@@ -23,9 +23,11 @@ swe-oa1-pen-plotter/
 ├── penplotter/               # Python package
 │   ├── hardware/             # Serial communication
 │   ├── kinematics/           # Coordinate transforms
-│   ├── shapes/               # Shape generation
-│   └── ui/                   # CLI interface
-├── examples/                 # Example shape configs
+│   ├── drawing/              # Drawing primitives and shapes
+│   ├── path/                 # Path interpolation
+│   └── config.py             # System configuration
+├── test_straight_line.py     # Straight line test script
+├── test_rectangle.py         # Rectangle drawing test script
 ├── docs/                     # Documentation
 └── tests/                    # Unit tests
 ```
@@ -44,15 +46,38 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Test Scripts
+
 ```bash
-# Draw a rectangle
-python -m penplotter draw-rectangle --size 50 --rotation 45
+# Draw a rectangle (100x100mm square rotated 45 degrees)
+python test_rectangle.py
 
-# Draw from config file
-python -m penplotter draw-config examples/hexagon.yaml
+# Draw a straight line with default coordinates
+python test_straight_line.py
 
-# Calibrate workspace
-python -m penplotter calibrate
+# Draw a straight line with custom coordinates (x1 y1 x2 y2)
+python test_straight_line.py 0 100 50 200
+```
+
+### Python API
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.drawing import draw_line, draw_rectangle
+
+# Connect to the plotter
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    # Home the plotter
+    plotter.home()
+
+    # Draw a straight line from (0, 100) to (50, 200)
+    draw_line(plotter, start=(0, 100), end=(50, 200), step_size=1.0)
+
+    # Draw a rectangle
+    draw_rectangle(plotter, center=(0, 175), width=100, height=100, rotation=45)
+
+    # Return to home
+    plotter.home()
 ```
 
 ## Documentation
