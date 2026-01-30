@@ -15,7 +15,7 @@ import sys
 import time
 import math
 from penplotter.hardware import Plotter
-from penplotter.drawing import draw_line, validate_point
+from penplotter.control import draw_line, validate_point
 from penplotter.kinematics import cartesian_to_polar
 from penplotter.config import DEFAULT_STEP_SIZE
 
@@ -37,9 +37,10 @@ def main():
             sys.exit(1)
     else:
         # Default line (in mm, Cartesian coordinates)
-        # Origin is at pen position: (0, 0) at bottom center of board
-        START = (0, 100)    # Start 100mm up from pen
-        END = (50, 200)     # End at 50mm right, 200mm up
+        # Origin is at rotation point: (0, 0)
+        # Pen is at (0, 160mm) when at home position
+        START = (0, 260)    # Start 100mm up from pen position (260mm from rotation point)
+        END = (50, 360)     # End at 50mm right, 200mm up from pen (360mm from rotation point)
         print("Using default coordinates")
 
     # Step size for interpolation

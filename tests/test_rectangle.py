@@ -7,7 +7,7 @@ a square rotated 45 degrees, similar to the example in the assignment.
 
 import math
 from penplotter.hardware.plotter import Plotter
-from penplotter.drawing import draw_rectangle
+from penplotter.control import draw_rectangle
 from penplotter.kinematics.transforms import cartesian_to_polar
 from penplotter.config import DEFAULT_STEP_SIZE
 
@@ -19,7 +19,9 @@ def main():
     SERIAL_PORT = "/dev/tty.usbmodem1101"
 
     # Rectangle parameters (matching assignment example)
-    CENTER = (0, 175)  # Center of the drawing board
+    # Note: Origin is at rotation point (0,0), pen is at (0, 160mm)
+    # Board extends from y=160mm to y=510mm
+    CENTER = (0, 335)  # Center of the drawing board (175mm from pen = 335mm from rotation point)
     WIDTH = 100  # mm
     HEIGHT = 100  # mm (square)
     ROTATION = 45  # degrees (rotated like in assignment image)

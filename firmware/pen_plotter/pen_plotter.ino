@@ -41,8 +41,8 @@ constexpr uint8_t DEFAULT_IRUN = 8;
 constexpr uint8_t DEFAULT_IHOLD = 8;
 constexpr uint8_t TMC_TOFFRUN = 4;
 
-#define SPEED_RPS 3.0  // Increased from 1.0 for faster rotation under load
-#define RATIO_ACCEL 5.0
+#define SPEED_RPS 3.5  // Conservative speed increase for smoother motion (was 3.0)
+#define RATIO_ACCEL 4.0  // Increased acceleration for faster ramp-up (was 5.0)
 #define RAIIO_DECEL 5.0
 
 constexpr float FULL_STEPS_PER_REV = 200.0;
@@ -70,7 +70,8 @@ long targetLinearPosition = 0;
 bool isHomed = false;
 
 // Linear actuator control parameters
-constexpr int LINEAR_TOLERANCE = 10;            // ADC tolerance for position reached (tighter control)
+constexpr int LINEAR_TOLERANCE = 7;             // Reduced from 10 for better accuracy (~±2.5mm vs ±3.6mm)
+constexpr int HOME_TOLERANCE = 15;              // Larger tolerance for homing to accommodate mechanical stop
 constexpr unsigned long LINEAR_TIMEOUT = 20000; // 20 second timeout (actuator is slow)
 
 void setup()
@@ -248,7 +249,7 @@ void cmdHome()
   // Wait for stepper to reach position
   while (!stepperDriver.position_reached())
   {
-    delay(10);
+    delay(5);  // Faster polling for quicker response
   }
 
   // Move linear actuator to home position (fully retracted)
@@ -258,8 +259,8 @@ void cmdHome()
     int currentADC = ADS.readADC(1);
     int error = ADC_HOME - currentADC;
 
-    // Check if reached target
-    if (abs(error) < LINEAR_TOLERANCE)
+    // Check if reached target (use larger tolerance for homing to accommodate mechanical stop)
+    if (abs(error) < HOME_TOLERANCE)
     {
       linearDriver.setPin(in1Pin, 0);
       linearDriver.setPin(in2Pin, 0);
@@ -278,19 +279,36 @@ void cmdHome()
       return;
     }
 
-    // Apply control based on error
-    if (error > 0)
+    // Apply velocity ramp-down control for smoother motion
+    int absError = abs(error);
+    uint16_t pwmValue;
+
+    if (absError > 50)
     {
-      linearDriver.setPin(in1Pin, 0);
-      linearDriver.setPin(in2Pin, 4095);
+      pwmValue = 4095;  // Full speed
+    }
+    else if (absError > 20)
+    {
+      pwmValue = 2048;  // Medium speed (50%)
     }
     else
     {
-      linearDriver.setPin(in1Pin, 4095);
+      pwmValue = 1024;  // Slow approach (25%)
+    }
+
+    // Apply control based on error direction
+    if (error > 0)
+    {
+      linearDriver.setPin(in1Pin, 0);
+      linearDriver.setPin(in2Pin, pwmValue);
+    }
+    else
+    {
+      linearDriver.setPin(in1Pin, pwmValue);
       linearDriver.setPin(in2Pin, 0);
     }
 
-    delay(10);
+    delay(5);  // Faster control loop: 200Hz vs 100Hz
   }
 }
 
@@ -308,7 +326,7 @@ void cmdRotate(long steps)
       Serial.println("ERROR: ROTATE timeout - position not reached");
       return;
     }
-    delay(10);
+    delay(5);  // Faster polling for quicker response
   }
 
   Serial.println("OK");
@@ -357,21 +375,42 @@ void cmdLinear(int targetADC)
       return;
     }
 
-    // Apply control based on error
+    // Apply velocity ramp-down control for smoother motion
+    // Use 3-zone control: full speed far away, ramp down as we approach target
+    int absError = abs(error);
+    uint16_t pwmValue;
+
+    if (absError > 50)
+    {
+      // Zone 1: Far from target - full speed
+      pwmValue = 4095;
+    }
+    else if (absError > 20)
+    {
+      // Zone 2: Approaching target - medium speed (50%)
+      pwmValue = 2048;
+    }
+    else
+    {
+      // Zone 3: Near target - slow approach (25%)
+      pwmValue = 1024;
+    }
+
+    // Apply control based on error direction
     if (error > 0)
     {
       // Need to extend
       linearDriver.setPin(in1Pin, 0);
-      linearDriver.setPin(in2Pin, 4095);
+      linearDriver.setPin(in2Pin, pwmValue);
     }
     else
     {
       // Need to retract
-      linearDriver.setPin(in1Pin, 4095);
+      linearDriver.setPin(in1Pin, pwmValue);
       linearDriver.setPin(in2Pin, 0);
     }
 
-    delay(10);
+    delay(5);  // Faster control loop: 200Hz vs 100Hz
   }
 }
 

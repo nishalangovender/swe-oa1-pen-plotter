@@ -8,16 +8,20 @@ with support for rotation, positioning, and workspace validation.
 import math
 from typing import Tuple
 from .primitives import draw_line
-from ..config import BOARD_WIDTH, BOARD_HEIGHT
+from penplotter.config import BOARD_WIDTH, BOARD_HEIGHT, PEN_OFFSET_MM
 
 
 def validate_point(x: float, y: float) -> bool:
     """
     Validate that a point falls within the plotter's workspace.
 
+    Coordinate system: Origin (0,0) is at rotation point
+    Pen is at (0, 160mm) when at home position
+    Board extends from pen position upward
+
     Args:
-        x: X coordinate in mm (should be in range [-140, 140])
-        y: Y coordinate in mm (should be in range [0, 350])
+        x: X coordinate in mm (should be in range [-140, 140] from rotation point)
+        y: Y coordinate in mm (should be in range [160, 510] from rotation point)
 
     Returns:
         True if point is valid, False otherwise
@@ -27,8 +31,8 @@ def validate_point(x: float, y: float) -> bool:
     """
     x_min = -BOARD_WIDTH / 2
     x_max = BOARD_WIDTH / 2
-    y_min = 0
-    y_max = BOARD_HEIGHT
+    y_min = PEN_OFFSET_MM  # Board starts at pen position (160mm from rotation point)
+    y_max = PEN_OFFSET_MM + BOARD_HEIGHT  # Board extends 350mm from pen position
 
     if not (x_min <= x <= x_max):
         raise ValueError(

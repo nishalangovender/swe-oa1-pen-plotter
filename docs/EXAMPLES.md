@@ -1,51 +1,56 @@
 # Examples
 
-This document covers example usage of the pen plotter system, including test scripts and API examples.
+This document covers example usage of the pen plotter system, including the interactive GUI and programmatic API examples.
 
-## Test Scripts
+## Interactive GUI (Primary Interface)
 
-### Drawing a Rectangle
-
-The `test_rectangle.py` script demonstrates drawing a rotated rectangle:
+### Launching the GUI
 
 ```bash
-python test_rectangle.py
+# Using the launcher script
+./run.sh
+
+# Or directly with Python
+python -m penplotter
 ```
 
-**Default parameters:**
-- Center: (0, 175)mm - middle of the drawing board
-- Size: 100×100mm (square)
-- Rotation: 45 degrees
-- Step size: 1.0mm interpolation
+### GUI Workflow
 
-**What it does:**
-1. Connects to the plotter
-2. Homes the plotter
-3. Draws a 45-degree rotated square
-4. Returns to home position
+1. **Connect to Plotter:**
+   - Click "Detect" to auto-detect available USB serial ports
+   - The first USB port will be automatically selected
+   - Alternatively, manually enter the port path (e.g., `/dev/tty.usbmodem1101`)
+   - Click "Connect" to establish connection
+   - Connection status indicator will turn green when connected
 
-**Output includes:**
-- Corner coordinates in Cartesian and polar
-- Expected perimeter and interpolation points
-- Workspace validation status
+2. **Create Drawing Path:**
+   - Click anywhere on the canvas to add path points
+   - Points are displayed with orange markers and connecting lines
+   - The workspace boundary is shown with a dashed cream-colored rectangle
+   - Invalid points (outside workspace) will show an error message
 
-### Drawing a Straight Line
+3. **Edit Path:**
+   - Click "Undo Point" to remove the last added point
+   - Click "Clear Path" to remove all points and start over
 
-The `test_straight_line.py` script demonstrates the line drawing functionality:
+4. **Execute Drawing:**
+   - Click "Execute" to start drawing the path on the physical plotter
+   - The actuator arm visualization will update in real-time as the plotter moves
+   - Path statistics (length, segments, bounds) are printed to console
+   - Drawing status is shown in the status panel
 
-```bash
-# Use default coordinates (0,100) → (50,200)
-python test_straight_line.py
+5. **Home Plotter:**
+   - Click "Home" to return the plotter to its home position
+   - The actuator arm visualization will update to show the home position
 
-# Use custom coordinates
-python test_straight_line.py 0 100 50 200  # start_x start_y end_x end_y
-```
+### GUI Features
 
-**Features:**
-- Command-line parameterization of start/end points
-- Workspace boundary validation
-- Timing and progress information
-- Polar coordinate display
+- **Live Visualization:** Real-time actuator arm position updates during drawing
+- **Workspace Boundaries:** Visual representation of valid drawing area
+- **Connection Status:** Color-coded indicator (gray=disconnected, green=connected, red=error)
+- **Path Validation:** Immediate feedback on point validity
+- **Path Statistics:** Total length, segment count, and bounding box information
+- **Auto-Port Detection:** Automatic detection of USB serial devices
 
 ## Python API Examples
 
@@ -53,13 +58,13 @@ python test_straight_line.py 0 100 50 200  # start_x start_y end_x end_y
 
 ```python
 from penplotter.hardware import Plotter
-from penplotter.drawing import draw_line
+from penplotter.control.primitives import draw_line
 
 with Plotter("/dev/tty.usbmodem1101") as plotter:
     plotter.home()
 
     # Draw a diagonal line
-    draw_line(plotter, start=(0, 100), end=(50, 200), step_size=1.0)
+    draw_line(plotter, start=(0, 200), end=(50, 300), step_size=1.0)
 
     plotter.home()
 ```
@@ -68,15 +73,15 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
 
 ```python
 from penplotter.hardware import Plotter
-from penplotter.drawing import draw_rectangle
+from penplotter.control.shapes import draw_rectangle
 
 with Plotter("/dev/tty.usbmodem1101") as plotter:
     plotter.home()
 
-    # Draw a rotated rectangle matching the assignment example
+    # Draw a rotated rectangle
     draw_rectangle(
         plotter,
-        center=(0, 175),    # Center position
+        center=(0, 300),    # Center position (origin-relative)
         width=100,          # Width in mm
         height=100,         # Height in mm
         rotation=45,        # Rotation angle in degrees
@@ -86,24 +91,39 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
     plotter.home()
 ```
 
-### Drawing Multiple Shapes
+### Path Execution with Progress Tracking
 
 ```python
 from penplotter.hardware import Plotter
-from penplotter.drawing import draw_rectangle
+from penplotter.control.executor import PathExecutor
+
+# Define a custom path
+path_points = [
+    (0, 200),
+    (50, 250),
+    (0, 300),
+    (-50, 250),
+    (0, 200)  # Close the path
+]
 
 with Plotter("/dev/tty.usbmodem1101") as plotter:
     plotter.home()
 
-    # Draw three rectangles with different parameters
-    rectangles = [
-        {"center": (0, 100), "width": 60, "height": 60, "rotation": 0},
-        {"center": (0, 175), "width": 100, "height": 100, "rotation": 45},
-        {"center": (0, 280), "width": 80, "height": 40, "rotation": 30},
-    ]
+    # Create executor and set path
+    executor = PathExecutor(plotter)
+    executor.set_path(path_points)
 
-    for rect in rectangles:
-        draw_rectangle(plotter, **rect)
+    # Optional: Set progress callback
+    def on_progress(current_pos, segment_progress):
+        print(f"Drawing at position: {current_pos}")
+
+    executor.set_progress_callback(on_progress)
+
+    # Execute the path
+    executor.execute()
+
+    # Print summary
+    executor.print_summary()
 
     plotter.home()
 ```
@@ -111,12 +131,12 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
 ### Workspace Validation
 
 ```python
-from penplotter.drawing import validate_point
+from penplotter.control.shapes import validate_point
 
 # Validate coordinates before drawing
 try:
-    validate_point(0, 175)    # Valid - center of workspace
-    validate_point(150, 200)  # Raises ValueError - X out of bounds
+    validate_point(0, 300)    # Valid - center of workspace
+    validate_point(150, 300)  # Raises ValueError - X out of bounds
 except ValueError as e:
     print(f"Invalid coordinates: {e}")
 ```
@@ -145,15 +165,42 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
     plotter.home()
 ```
 
+## Direct Hardware Control CLI
+
+For low-level testing and debugging, use the `plotter_control.py` CLI tool:
+
+```bash
+python plotter_control.py /dev/tty.usbmodem1101
+```
+
+**Available commands:**
+- `home` - Move to home position
+- `rotate <degrees>` - Rotate to angle
+- `linear <mm>` - Extend to distance from rotation axis
+- `raw_rotate <steps>` - Rotate to absolute microsteps (direct hardware control)
+- `raw_linear <adc>` - Extend to ADC value 0-834 (direct hardware control)
+- `pos` - Get current position (angle and radius)
+- `stop` - Emergency stop
+- `debug` - Toggle debug mode
+- `help` - Show help
+- `quit` - Exit
+
+**Use cases:**
+- Manual hardware testing
+- Debugging serial communication
+- Position verification
+- Calibration assistance
+
 ## Coordinate System
 
-**Origin**: (0, 0) at pen position (bottom center of board)
+**Origin**: (0, 0) at rotation axis
 - **X-axis**: -140mm to +140mm (left/right)
-- **Y-axis**: 0mm to 350mm (up the board)
+- **Y-axis**: 160mm to 510mm from rotation axis
+  - Pen home position: y=160mm
+  - Drawing area: 160mm to 510mm (350mm height)
 - **Rotation**: 0° points UP (+Y direction)
-  - Positive angles sweep LEFT (toward -X)
-  - Negative angles sweep RIGHT (toward +X)
-  - Range: ±45° from vertical
+  - Positive angles sweep counter-clockwise
+  - Negative angles sweep clockwise
 
 ## Firmware Setup
 

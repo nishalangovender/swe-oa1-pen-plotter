@@ -6,7 +6,7 @@ Control system for an RP2040-based pen plotter with stepper motor and linear act
 
 This project implements a two-layer architecture:
 - **Firmware (Arduino/C++)**: Low-level motor control and serial command interface
-- **Application (Python)**: High-level path planning, kinematics, and shape generation
+- **Application (Python)**: Interactive matplotlib-based GUI with path planning, kinematics, and live visualization
 
 ## Hardware
 
@@ -23,11 +23,12 @@ swe-oa1-pen-plotter/
 ├── penplotter/               # Python package
 │   ├── hardware/             # Serial communication
 │   ├── kinematics/           # Coordinate transforms
-│   ├── drawing/              # Drawing primitives and shapes
+│   ├── control/              # Drawing primitives and shapes
 │   ├── path/                 # Path interpolation
+│   ├── visualization/        # Interactive matplotlib GUI
+│   ├── data/                 # Path data structures
 │   └── config.py             # System configuration
-├── test_straight_line.py     # Straight line test script
-├── test_rectangle.py         # Rectangle drawing test script
+├── run.sh                    # GUI launcher script
 ├── docs/                     # Documentation
 └── tests/                    # Unit tests
 ```
@@ -46,24 +47,40 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Test Scripts
+### Interactive GUI (Primary Interface)
+
+Launch the interactive matplotlib-based GUI:
 
 ```bash
-# Draw a rectangle (100x100mm square rotated 45 degrees)
-python test_rectangle.py
+# Using the launcher script
+./run.sh
 
-# Draw a straight line with default coordinates
-python test_straight_line.py
-
-# Draw a straight line with custom coordinates (x1 y1 x2 y2)
-python test_straight_line.py 0 100 50 200
+# Or directly with Python
+python -m penplotter
 ```
 
-### Python API
+**GUI Features:**
+- Click on canvas to add path points
+- Connect to plotter via serial port (auto-detection available)
+- Live actuator arm visualization during execution
+- Workspace boundary visualization
+- Path validation and statistics
+- Undo/Clear path controls
+- Home plotter button
+
+**GUI Workflow:**
+1. Click "Detect" to auto-detect USB serial ports
+2. Click "Connect" to establish connection with plotter
+3. Click on canvas to add points to your drawing path
+4. Click "Execute" to draw the path on the physical plotter
+5. Use "Undo" to remove last point or "Clear Path" to start over
+6. Click "Home" to return plotter to home position
+
+### Python API (Programmatic Control)
 
 ```python
 from penplotter.hardware import Plotter
-from penplotter.drawing import draw_line, draw_rectangle
+from penplotter.control import draw_line, draw_rectangle
 
 # Connect to the plotter
 with Plotter("/dev/tty.usbmodem1101") as plotter:

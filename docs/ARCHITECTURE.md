@@ -7,18 +7,23 @@ The pen plotter control system uses a layered architecture separating firmware (
 ```mermaid
 graph TB
     subgraph Python["Application Layer (Python)"]
-        CLI[CLI Interface]
-        Shapes[Shape Generator<br/>Rectangle, Polygon]
-        Config[Config Parser<br/>YAML shapes]
+        GUI[Interactive GUI<br/>matplotlib]
+        Viz[Visualization<br/>Live updates, styles]
+        Control[Control Layer<br/>Shapes, Primitives]
+        Executor[Path Executor<br/>Progress tracking]
+        Data[Data Layer<br/>Path structures]
         Kinematics[Kinematics<br/>Cartesian ↔ Polar]
-        Calib[Calibration<br/>Workspace limits]
+        Path[Path Interpolation<br/>Linear segments]
         Serial[Serial Communication<br/>Command/Response]
 
-        CLI --> Shapes
-        CLI --> Config
-        Config --> Shapes
-        Shapes --> Kinematics
-        Kinematics --> Calib
+        GUI --> Viz
+        GUI --> Control
+        GUI --> Executor
+        Control --> Path
+        Executor --> Control
+        Executor --> Data
+        Control --> Kinematics
+        Path --> Kinematics
         Kinematics --> Serial
     end
 
@@ -121,56 +126,80 @@ y = r * sin(θ)
 - Workspace validation
 - Line interpolation (if needed)
 
-### Python Shapes Layer (penplotter/shapes/)
+### Python Control Layer (penplotter/control/)
 
-- Rectangle generation
-- Polygon generation (N sides)
-- Curve generation (Bézier, arcs)
-- Config file parsing (YAML)
+- Shape drawing functions (rectangles, primitives)
+- Drawing primitives (lines with interpolation)
+- Point validation and workspace checking
+- Path execution coordination
 
-### Python UI Layer (penplotter/ui/)
+### Python Visualization Layer (penplotter/visualization/)
 
-- CLI argument parsing (argparse)
-- Command dispatch
-- Progress display and status updates
-- Interactive mode for testing
-- Color output and formatting
-- Error reporting and user feedback
+- Interactive matplotlib-based GUI
+- Live actuator arm visualization
+- Workspace boundary display
+- Drawing path preview
+- Connection status indicators
+- Click-to-add-point interaction
+- Monumental design system colors and styling
 
-**Note:** UI is a Python CLI application (not web-based). Enhanced UX features include progress indicators, color output, and interactive testing mode - appropriate for the 2-day timeline.
+### Python Data Layer (penplotter/data/)
 
-## Data Flow Example: Drawing a Rectangle
+- Path data structures
+- Path statistics calculation
+- Segment management
 
-1. User: `python -m penplotter draw-rectangle --size 50 --rotation 45`
-2. CLI parses arguments
-3. Rectangle generator creates corners: [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
-4. For each corner:
-   - Kinematics converts (x, y) → (θ, r)
-   - Serial layer sends `ROTATE <steps>` and waits for `OK`
-   - Serial layer sends `LINEAR <target>` and waits for `OK`
-5. Drawing complete
+### Python Path Layer (penplotter/path/)
 
-## Configuration Format
+- Linear path interpolation
+- Step size control
 
-```yaml
-shape:
-  type: rectangle | polygon | curve
+**Note:** The system features an interactive matplotlib-based GUI that provides real-time visualization of the pen plotter's state, including live actuator arm position updates during drawing execution.
 
-  # Rectangle
-  width: 50
-  height: 30
-  rotation: 45
-  center: [0, 0]
+## Data Flow Example: Drawing a Path
 
-  # Polygon
-  sides: 6
-  radius: 40
-  rotation: 0
-  center: [0, 0]
+1. User launches GUI: `python -m penplotter` or `./run.sh`
+2. User clicks "Detect" to find serial ports and "Connect" to establish connection
+3. User clicks on canvas to add path points: [(x1,y1), (x2,y2), (x3,y3), ...]
+4. GUI validates each point against workspace boundaries in real-time
+5. User clicks "Execute" to start drawing
+6. Path Executor processes the path:
+   - Interpolates each segment into small steps
+   - For each interpolated point:
+     - Kinematics converts (x, y) → (θ, r)
+     - Serial layer sends `ROTATE <steps>` and waits for `OK`
+     - Serial layer sends `LINEAR <target>` and waits for `OK`
+     - Executor triggers progress callback
+   - GUI updates actuator arm visualization live during drawing
+7. Drawing complete, plotter returns to home
 
-  # Curve (future extension)
-  type: bezier
-  control_points: [[x1,y1], [x2,y2], ...]
+## GUI Interaction Model
+
+The system uses an interactive GUI approach rather than configuration files:
+
+**Interactive Drawing:**
+- Click on canvas to add path points
+- Visual feedback shows workspace boundaries
+- Real-time validation of point coordinates
+- Live actuator arm visualization during execution
+- Progress tracking and statistics display
+
+**Configuration (penplotter/config.py):**
+```python
+# Hardware calibration parameters
+BOARD_WIDTH = 280  # mm
+BOARD_HEIGHT = 350  # mm
+PEN_OFFSET_MM = 160  # mm from rotation axis to pen home
+
+# Stepper motor configuration
+MICROSTEPS_PER_STEP = 256
+STEPS_PER_REV = 200
+GEARBOX_RATIO = 20
+
+# Linear actuator ADC calibration
+LINEAR_ADC_MIN = 1000  # Fully retracted
+LINEAR_ADC_MAX = 30000  # Fully extended
+LINEAR_ADC_HOME = 5000  # Home/drawing position
 ```
 
 ## Calibration Strategy
@@ -225,17 +254,22 @@ stepper:
 
 ## Extension Points
 
-### Day 2 Creative Extensions (Planned Focus)
+### Implemented Features
 
-- **Config file support**: Add YAML parser and shape factory for polygons
-- **Enhanced CLI**: Interactive testing mode, progress indicators, color output
-- **Polygon support**: N-sided regular polygons with configurable parameters
-- **Better calibration**: Guided calibration routine with clear prompts
+- **Interactive GUI**: matplotlib-based GUI with click-to-draw interface
+- **Live visualization**: Real-time actuator arm position updates during drawing
+- **Serial port auto-detection**: Automatic detection of USB serial ports
+- **Path validation**: Real-time workspace boundary checking
+- **Progress tracking**: Path statistics and execution progress monitoring
+- **Monumental design system**: Consistent color scheme and styling
 
 ### Future Extensions (If Time Permits)
 
-- **Curve support**: Bézier curves with interpolation and speed control
-- **Web UI**: React frontend with WebSocket backend (would require significant additional time)
+- **Shape templates**: Pre-defined shapes (rectangles, polygons, circles)
+- **Path smoothing**: Bézier curves and spline interpolation
+- **Undo/Redo history**: Full path editing capabilities
+- **Path export/import**: Save and load drawing paths
+- **Multi-layer drawings**: Support for complex multi-path compositions
 
 ## Design Decisions
 
@@ -252,15 +286,17 @@ stepper:
 - Flexible for future extensions
 - Application handles all intelligence
 
-### Why Python CLI for application?
+### Why matplotlib GUI for application?
 
 - Fast development for 2-day timeline
-- Rich libraries (numpy, yaml, pyserial)
-- Easy to parse config files
+- Rich Python libraries (matplotlib, numpy, pyserial)
+- Interactive visualization with minimal setup
 - Direct serial port access
-- CLI tools are practical and professional
-- Can add enhanced UX features (progress bars, colors, interactive mode)
+- Built-in event handling for clicks and buttons
+- Real-time plotting capabilities for live actuator visualization
+- Professional appearance with custom styling
 - Avoids complexity of web stack (backend server, React frontend)
+- Matplotlib provides both visualization and GUI controls in one framework
 - Appropriate scope for 2-day assignment
 
 ## Design Decisions
