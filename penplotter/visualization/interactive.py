@@ -7,7 +7,7 @@ that matches the wagon project's design patterns.
 """
 
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Button, TextBox, RadioButtons
+from matplotlib.widgets import Button, TextBox, RadioButtons, Slider
 from matplotlib.backend_bases import MouseButton
 from matplotlib.patches import Circle
 import numpy as np
@@ -30,7 +30,15 @@ from penplotter.visualization.styles import (
     style_legend
 )
 from penplotter.data.path import calculate_path_statistics
-from penplotter.config import BOARD_WIDTH, BOARD_HEIGHT, PEN_OFFSET_MM
+from penplotter.config import (
+    BOARD_WIDTH,
+    BOARD_HEIGHT,
+    PEN_OFFSET_MM,
+    ADC_PER_MM,
+    ADC_MIN,
+    MICROSTEPS_PER_DEGREE,
+    PHYSICAL_RANGE_MM
+)
 
 
 class PlotterGUI:
@@ -55,7 +63,7 @@ class PlotterGUI:
         self.available_ports = []
         self.current_pen_position = (0, PEN_OFFSET_MM)  # Track current pen position
 
-        # Drawing mode: 'Line' or 'Curve'
+        # Drawing mode: 'Line', 'Curve', 'Rectangle', or 'Circle'
         self.drawing_mode = 'Line'
 
         # Unified segment list (supports mixed line and curve segments)
@@ -68,6 +76,15 @@ class PlotterGUI:
             'control1': None,
             'control2': None,
             'end': None
+        }
+        self.current_rectangle = {
+            'corner1': None,
+            'corner2': None,
+            'corner3': None
+        }
+        self.current_circle = {
+            'center': None,
+            'radius_point': None
         }
 
         # Setup the GUI
@@ -140,6 +157,13 @@ class PlotterGUI:
                                       linewidth=1.5,
                                       alpha=0.5)
 
+        # Initialize clicked points marker (shows points being built)
+        self.clicked_points, = ax.plot([], [], 'x',
+                                       color=MONUMENTAL_CREAM,
+                                       markersize=10,
+                                       markeredgewidth=2,
+                                       label="Clicked points")
+
         # Initialize actuator arm visualization
         self.arm_line, = ax.plot([0, 0], [0, PEN_OFFSET_MM],
                                   color=MONUMENTAL_YELLOW_ORANGE,
@@ -162,18 +186,19 @@ class PlotterGUI:
         ax.set_ylim(-20, y_max + 20)  # Show from origin to max reach
         ax.set_aspect("equal", adjustable="box")
 
-        # Legend
-        legend = ax.legend(loc="upper right", fontsize=9)
+        # Legend - positioned outside plot area to the right
+        legend = ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1), fontsize=9)
         style_legend(legend, framealpha=0.8)
 
-        # Status text
+        # Status text - positioned outside plot area to the left
         self.status_text = ax.text(
-            0.02, 0.98,
+            -0.02, 0.98,
             "Status: Ready\nClick to add points",
             transform=ax.transAxes,
             fontsize=10,
             color=MONUMENTAL_CREAM,
             verticalalignment='top',
+            horizontalalignment='right',
             bbox=dict(boxstyle='round', facecolor=MONUMENTAL_DARK_BLUE,
                       edgecolor=MONUMENTAL_TAUPE, alpha=0.8)
         )
@@ -263,8 +288,9 @@ class PlotterGUI:
         self.btn_execute.label.set_color(text_color)
         self.btn_execute.on_clicked(self._on_execute)
 
+        # Manual Controls Section (new row at y=0.02)
         # Home button
-        ax_home = plt.axes([0.60, 0.14, 0.10, 0.04])
+        ax_home = plt.axes([0.15, 0.02, 0.08, 0.04])
         self.btn_home = Button(
             ax_home,
             'Home',
@@ -274,16 +300,52 @@ class PlotterGUI:
         self.btn_home.label.set_color(text_color)
         self.btn_home.on_clicked(self._on_home)
 
-        # Close button
-        ax_close = plt.axes([0.72, 0.14, 0.10, 0.04])
-        self.btn_close = Button(
-            ax_close,
-            'Close',
-            color=button_color,
-            hovercolor=hover_color
+        # Stop button (emergency stop)
+        ax_stop = plt.axes([0.24, 0.02, 0.08, 0.04])
+        self.btn_stop = Button(
+            ax_stop,
+            'Stop',
+            color=MONUMENTAL_ORANGE,  # Orange for emergency
+            hovercolor='#ff0000'  # Red on hover
         )
-        self.btn_close.label.set_color(text_color)
-        self.btn_close.on_clicked(self._on_close)
+        self.btn_stop.label.set_color(text_color)
+        self.btn_stop.on_clicked(self._on_stop)
+
+        # Linear slider (160mm to 470mm total radius)
+        ax_linear = plt.axes([0.35, 0.015, 0.15, 0.02])
+        self.linear_slider = Slider(
+            ax_linear,
+            '',
+            PEN_OFFSET_MM,
+            PEN_OFFSET_MM + PHYSICAL_RANGE_MM,
+            valinit=PEN_OFFSET_MM,
+            color=MONUMENTAL_BLUE,
+            valstep=1,
+            valfmt='%dmm'
+        )
+        self.linear_slider.valtext.set_color(text_color)
+        self.linear_slider.on_changed(self._on_linear_slider_changed)
+        # Add label above slider
+        ax_linear.text(0.5, 1.8, 'Linear', transform=ax_linear.transAxes,
+                      ha='center', va='bottom', color=text_color, fontsize=9)
+
+        # Rotate slider (-45° to +45°)
+        ax_rotate = plt.axes([0.55, 0.015, 0.15, 0.02])
+        self.rotate_slider = Slider(
+            ax_rotate,
+            '',
+            -45,
+            45,
+            valinit=0,
+            color=MONUMENTAL_BLUE,
+            valstep=1,
+            valfmt='%d°'
+        )
+        self.rotate_slider.valtext.set_color(text_color)
+        self.rotate_slider.on_changed(self._on_rotate_slider_changed)
+        # Add label above slider
+        ax_rotate.text(0.5, 1.8, 'Rotate', transform=ax_rotate.transAxes,
+                      ha='center', va='bottom', color=text_color, fontsize=9)
 
         # Drawing mode toggle buttons (Line vs Curve)
         ax_line_mode = plt.axes([0.56, 0.08, 0.06, 0.04])
@@ -306,6 +368,26 @@ class PlotterGUI:
         self.btn_curve_mode.label.set_color(text_color)
         self.btn_curve_mode.on_clicked(lambda event: self._on_mode_changed('Curve'))
 
+        ax_rectangle_mode = plt.axes([0.68, 0.08, 0.06, 0.04])
+        self.btn_rectangle_mode = Button(
+            ax_rectangle_mode,
+            'Rect',
+            color=button_color,  # Inactive by default
+            hovercolor=hover_color
+        )
+        self.btn_rectangle_mode.label.set_color(text_color)
+        self.btn_rectangle_mode.on_clicked(lambda event: self._on_mode_changed('Rectangle'))
+
+        ax_circle_mode = plt.axes([0.74, 0.08, 0.06, 0.04])
+        self.btn_circle_mode = Button(
+            ax_circle_mode,
+            'Circle',
+            color=button_color,  # Inactive by default
+            hovercolor=hover_color
+        )
+        self.btn_circle_mode.label.set_color(text_color)
+        self.btn_circle_mode.on_clicked(lambda event: self._on_mode_changed('Circle'))
+
     def _on_mode_changed(self, mode):
         """Handle drawing mode change."""
         if mode == self.drawing_mode:
@@ -321,16 +403,34 @@ class PlotterGUI:
             'control2': None,
             'end': None
         }
+        self.current_rectangle = {
+            'corner1': None,
+            'corner2': None,
+            'corner3': None
+        }
+        self.current_circle = {
+            'center': None,
+            'radius_point': None
+        }
 
         # Update button styling
+        self.btn_line_mode.color = MONUMENTAL_TAUPE
+        self.btn_curve_mode.color = MONUMENTAL_TAUPE
+        self.btn_rectangle_mode.color = MONUMENTAL_TAUPE
+        self.btn_circle_mode.color = MONUMENTAL_TAUPE
+
         if mode == 'Line':
             self.btn_line_mode.color = MONUMENTAL_ORANGE
-            self.btn_curve_mode.color = MONUMENTAL_TAUPE
             self._update_status("Line mode: Click points to draw lines")
-        else:
-            self.btn_line_mode.color = MONUMENTAL_TAUPE
+        elif mode == 'Curve':
             self.btn_curve_mode.color = MONUMENTAL_ORANGE
             self._update_status("Curve mode: Click start → control1 → control2 → end")
+        elif mode == 'Rectangle':
+            self.btn_rectangle_mode.color = MONUMENTAL_ORANGE
+            self._update_status("Rectangle mode: Click corner → adjacent corner → width point")
+        elif mode == 'Circle':
+            self.btn_circle_mode.color = MONUMENTAL_ORANGE
+            self._update_status("Circle mode: Click center → radius point")
 
         self._update_path_display()
         self.fig.canvas.draw_idle()
@@ -372,7 +472,7 @@ class PlotterGUI:
                 self.current_line_start = (x, y)
                 self._update_path_display()
 
-            else:
+            elif self.drawing_mode == 'Curve':
                 # Curve mode: collect 4 points for Bezier curve
                 if self.current_curve['start'] is None:
                     self.current_curve['start'] = (x, y)
@@ -405,6 +505,100 @@ class PlotterGUI:
                         'control1': None,
                         'control2': None,
                         'end': None
+                    }
+
+                self._update_path_display()
+
+            elif self.drawing_mode == 'Rectangle':
+                # Rectangle mode: collect 3 corners to define rotated rectangle
+                if self.current_rectangle['corner1'] is None:
+                    self.current_rectangle['corner1'] = (x, y)
+                    self._update_status(f"Rectangle corner 1: ({x:.1f}, {y:.1f})\nClick adjacent corner")
+                elif self.current_rectangle['corner2'] is None:
+                    self.current_rectangle['corner2'] = (x, y)
+                    self._update_status(f"Adjacent corner: ({x:.1f}, {y:.1f})\nClick to define width (perpendicular)")
+                else:
+                    # Third click completes the rectangle
+                    import math
+                    self.current_rectangle['corner3'] = (x, y)
+
+                    c1 = self.current_rectangle['corner1']
+                    c2 = self.current_rectangle['corner2']
+                    c3 = (x, y)
+
+                    # Create a proper rectangle (90 degree angles)
+                    # c1-c2 defines the first edge and rotation angle
+                    # c3 defines the width by projecting onto the perpendicular
+
+                    # Vector from c1 to c2 (first edge)
+                    edge1_x = c2[0] - c1[0]
+                    edge1_y = c2[1] - c1[1]
+                    edge1_length = math.sqrt(edge1_x**2 + edge1_y**2)
+
+                    # Normalized edge1 vector
+                    edge1_norm_x = edge1_x / edge1_length
+                    edge1_norm_y = edge1_y / edge1_length
+
+                    # Perpendicular vector (rotate 90 degrees)
+                    perp_x = -edge1_norm_y
+                    perp_y = edge1_norm_x
+
+                    # Vector from c2 to c3
+                    c2_to_c3_x = c3[0] - c2[0]
+                    c2_to_c3_y = c3[1] - c2[1]
+
+                    # Project onto perpendicular to get width
+                    width = c2_to_c3_x * perp_x + c2_to_c3_y * perp_y
+
+                    # Calculate corners of the rectangle
+                    # c2 + width * perpendicular
+                    c3_actual = (c2[0] + width * perp_x, c2[1] + width * perp_y)
+                    # c1 + width * perpendicular
+                    c4 = (c1[0] + width * perp_x, c1[1] + width * perp_y)
+
+                    # Store the completed rectangle segment with all 4 corners
+                    segment = {
+                        'type': 'rectangle',
+                        'corners': [c1, c2, c3_actual, c4]
+                    }
+                    self.segments.append(segment)
+
+                    self._update_status(f"Rectangle completed!\nTotal segments: {len(self.segments)}")
+
+                    # Reset for next rectangle
+                    self.current_rectangle = {
+                        'corner1': None,
+                        'corner2': None,
+                        'corner3': None
+                    }
+
+                self._update_path_display()
+
+            elif self.drawing_mode == 'Circle':
+                # Circle mode: collect center and radius point
+                if self.current_circle['center'] is None:
+                    self.current_circle['center'] = (x, y)
+                    self._update_status(f"Circle center: ({x:.1f}, {y:.1f})\nClick radius point")
+                else:
+                    # Second click completes the circle
+                    import math
+                    center = self.current_circle['center']
+                    radius = math.sqrt((x - center[0])**2 + (y - center[1])**2)
+
+                    # Store the completed circle segment
+                    segment = {
+                        'type': 'circle',
+                        'center': center,
+                        'radius': radius
+                    }
+                    self.segments.append(segment)
+
+                    self._update_status(f"Circle completed! Radius: {radius:.1f}mm\nTotal segments: {len(self.segments)}")
+
+                    # Reset for next circle
+                    self.current_circle = {
+                        'center': None,
+                        'radius_point': None
                     }
 
                 self._update_path_display()
@@ -445,6 +639,26 @@ class PlotterGUI:
                     segment['control2'], segment['end'],
                     [np.nan, np.nan]  # Break before next segment
                 ])
+            elif segment['type'] == 'rectangle':
+                # Visualize rectangle as 4 connected lines
+                corners = segment['corners'] + [segment['corners'][0]]  # Close the rectangle
+                all_path_points.extend(corners)
+                all_path_points.append([np.nan, np.nan])  # Break before next segment
+            elif segment['type'] == 'circle':
+                # Visualize circle using approximation points
+                import math
+                center_x, center_y = segment['center']
+                radius = segment['radius']
+                # Generate points around the circle
+                num_points = 100
+                circle_points = []
+                for i in range(num_points + 1):
+                    angle = 2 * math.pi * i / num_points
+                    x = center_x + radius * math.cos(angle)
+                    y = center_y + radius * math.sin(angle)
+                    circle_points.append((x, y))
+                all_path_points.extend(circle_points)
+                all_path_points.append([np.nan, np.nan])  # Break before next segment
 
         # Show completed segments
         if all_path_points:
@@ -461,6 +675,18 @@ class PlotterGUI:
         if self.drawing_mode == 'Line' and self.current_line_start is not None:
             # Show the current start point for the next line
             temp_points.append(self.current_line_start)
+
+        elif self.drawing_mode == 'Rectangle':
+            # Show current rectangle being built
+            if self.current_rectangle['corner1'] is not None:
+                temp_points.append(self.current_rectangle['corner1'])
+                if self.current_rectangle['corner2'] is not None:
+                    temp_points.append(self.current_rectangle['corner2'])
+
+        elif self.drawing_mode == 'Circle':
+            # Show current circle being built
+            if self.current_circle['center'] is not None:
+                temp_points.append(self.current_circle['center'])
 
         elif self.drawing_mode == 'Curve':
             # Show current curve being built
@@ -516,6 +742,13 @@ class PlotterGUI:
 
         if self.drawing_mode != 'Curve' or self.current_curve['start'] is None:
             self.curve_preview.set_data([], [])
+
+        # Show clicked points (temporary points being built)
+        if temp_points:
+            temp_array = np.array(temp_points)
+            self.clicked_points.set_data(temp_array[:, 0], temp_array[:, 1])
+        else:
+            self.clicked_points.set_data([], [])
 
         self.fig.canvas.draw_idle()
 
@@ -668,9 +901,66 @@ class PlotterGUI:
                 self.plotter.home()
                 # Update actuator display to home position
                 self._update_actuator_display(0, PEN_OFFSET_MM)
+                # Reset sliders to home position
+                self.rotate_slider.set_val(0)
+                self.linear_slider.set_val(PEN_OFFSET_MM)
                 self._update_status("Plotter homed successfully")
             except Exception as e:
                 self._update_status(f"Homing failed: {e}", error=True)
+
+    def _on_stop(self, event):
+        """Handle stop button click - emergency stop."""
+        if self.is_connected:
+            try:
+                self._update_status("Emergency stop activated!")
+                self.plotter.stop()
+                self.is_drawing = False  # Reset drawing state
+                self._update_status("Plotter stopped", error=True)
+            except Exception as e:
+                self._update_status(f"Stop failed: {e}", error=True)
+
+    def _on_linear_slider_changed(self, val):
+        """Handle linear slider value change."""
+        if self.is_connected and not self.is_drawing:
+            try:
+                total_radius = int(val)
+                # Convert total radius to extension
+                extension_mm = total_radius - PEN_OFFSET_MM
+                # Convert extension to ADC value
+                adc_value = int(extension_mm * ADC_PER_MM + ADC_MIN)
+                # Clamp to valid range
+                adc_value = max(0, min(834, adc_value))
+
+                self._update_status(f"Moving linear actuator to {total_radius}mm (ADC: {adc_value})...")
+                self.plotter.linear(adc_value)
+
+                # Update actuator display
+                current_angle = self.rotate_slider.val
+                self._update_actuator_display(current_angle, total_radius)
+
+                self._update_status(f"Linear actuator moved to {total_radius}mm")
+            except Exception as e:
+                self._update_status(f"Linear movement failed: {e}", error=True)
+
+    def _on_rotate_slider_changed(self, val):
+        """Handle rotate slider value change."""
+        if self.is_connected and not self.is_drawing:
+            try:
+                angle_deg = int(val)
+                # Convert degrees to microsteps
+                microsteps = int(angle_deg * MICROSTEPS_PER_DEGREE)
+
+                self._update_status(f"Rotating to {angle_deg}° ({microsteps} steps)...")
+                self.plotter.rotate(microsteps)
+
+                # Update actuator display
+                # Get current total radius from linear slider
+                total_radius = self.linear_slider.val
+                self._update_actuator_display(angle_deg, total_radius)
+
+                self._update_status(f"Rotated to {angle_deg}°")
+            except Exception as e:
+                self._update_status(f"Rotation failed: {e}", error=True)
 
     def _on_execute(self, event):
         """Handle execute button click."""
@@ -705,6 +995,7 @@ class PlotterGUI:
         try:
             from penplotter.control.primitives import draw_line
             from penplotter.control.curves import draw_curve
+            from penplotter.control.shapes import draw_rectangle, draw_circle
 
             # Home before drawing
             self._update_status("Homing plotter...")
@@ -743,16 +1034,36 @@ class PlotterGUI:
                         progress_callback=on_position_update
                     )
 
+                elif segment['type'] == 'rectangle':
+                    # Draw rectangle segment with live position tracking
+                    draw_rectangle(
+                        self.plotter,
+                        segment['corners'],
+                        progress_callback=on_position_update
+                    )
+
+                elif segment['type'] == 'circle':
+                    # Draw circle segment with live position tracking
+                    draw_circle(
+                        self.plotter,
+                        segment['center'][0],
+                        segment['center'][1],
+                        segment['radius'],
+                        progress_callback=on_position_update
+                    )
+
             end_time = time.time()
             duration = end_time - start_time
 
             # Count segment types
             line_count = sum(1 for seg in self.segments if seg['type'] == 'line')
             curve_count = sum(1 for seg in self.segments if seg['type'] == 'curve')
+            rectangle_count = sum(1 for seg in self.segments if seg['type'] == 'rectangle')
+            circle_count = sum(1 for seg in self.segments if seg['type'] == 'circle')
 
             self._update_status(f"Drawing complete!\n"
-                                f"Drew {len(self.segments)} segments ({line_count} lines, {curve_count} curves) in "
-                                f"{duration:.1f}s")
+                                f"Drew {len(self.segments)} segments ({line_count} lines, {curve_count} curves, "
+                                f"{rectangle_count} rectangles, {circle_count} circles) in {duration:.1f}s")
 
             # Home after drawing
             self._update_status("Returning to home...")
@@ -766,12 +1077,6 @@ class PlotterGUI:
 
         finally:
             self.is_drawing = False
-
-    def _on_close(self, event):
-        """Handle close button click."""
-        if self.plotter:
-            self.plotter.disconnect()
-        plt.close('all')
 
     def run(self):
         """Start the GUI event loop."""
