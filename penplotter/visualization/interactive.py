@@ -48,13 +48,27 @@ class PlotterGUI:
 
     def __init__(self):
         """Initialize the plotter GUI."""
-        self.path_points: List[Tuple[float, float]] = []
         self.plotter: Optional[Plotter] = None
         self.is_connected = False
         self.is_drawing = False
         self.serial_port = "/dev/tty.usbmodem1101"  # Default port
         self.available_ports = []
         self.current_pen_position = (0, PEN_OFFSET_MM)  # Track current pen position
+
+        # Drawing mode: 'Line' or 'Curve'
+        self.drawing_mode = 'Line'
+
+        # Unified segment list (supports mixed line and curve segments)
+        self.segments = []  # List of segment dicts with 'type' field
+
+        # Current drawing state
+        self.current_line_start = None  # For line mode: last point clicked
+        self.current_curve = {
+            'start': None,
+            'control1': None,
+            'control2': None,
+            'end': None
+        }
 
         # Setup the GUI
         self._setup_figure()
@@ -110,6 +124,21 @@ class PlotterGUI:
                                    linewidth=2,
                                    markersize=6,
                                    label="Drawing path")
+
+        # Initialize curve control point visualization
+        self.control_handles, = ax.plot([], [], '--',
+                                        color=MONUMENTAL_YELLOW_ORANGE,
+                                        linewidth=1.5,
+                                        alpha=0.6,
+                                        label="Bezier handles")
+        self.control_points, = ax.plot([], [], 's',
+                                       color=MONUMENTAL_YELLOW_ORANGE,
+                                       markersize=8,
+                                       alpha=0.8)
+        self.curve_preview, = ax.plot([], [], '-',
+                                      color=MONUMENTAL_ORANGE,
+                                      linewidth=1.5,
+                                      alpha=0.5)
 
         # Initialize actuator arm visualization
         self.arm_line, = ax.plot([0, 0], [0, PEN_OFFSET_MM],
@@ -256,6 +285,56 @@ class PlotterGUI:
         self.btn_close.label.set_color(text_color)
         self.btn_close.on_clicked(self._on_close)
 
+        # Drawing mode toggle buttons (Line vs Curve)
+        ax_line_mode = plt.axes([0.56, 0.08, 0.06, 0.04])
+        self.btn_line_mode = Button(
+            ax_line_mode,
+            'Line',
+            color=MONUMENTAL_ORANGE,  # Active by default
+            hovercolor=hover_color
+        )
+        self.btn_line_mode.label.set_color(text_color)
+        self.btn_line_mode.on_clicked(lambda event: self._on_mode_changed('Line'))
+
+        ax_curve_mode = plt.axes([0.62, 0.08, 0.06, 0.04])
+        self.btn_curve_mode = Button(
+            ax_curve_mode,
+            'Curve',
+            color=button_color,  # Inactive by default
+            hovercolor=hover_color
+        )
+        self.btn_curve_mode.label.set_color(text_color)
+        self.btn_curve_mode.on_clicked(lambda event: self._on_mode_changed('Curve'))
+
+    def _on_mode_changed(self, mode):
+        """Handle drawing mode change."""
+        if mode == self.drawing_mode:
+            return  # Already in this mode
+
+        self.drawing_mode = mode
+
+        # Reset current drawing state (but keep completed segments)
+        self.current_line_start = None
+        self.current_curve = {
+            'start': None,
+            'control1': None,
+            'control2': None,
+            'end': None
+        }
+
+        # Update button styling
+        if mode == 'Line':
+            self.btn_line_mode.color = MONUMENTAL_ORANGE
+            self.btn_curve_mode.color = MONUMENTAL_TAUPE
+            self._update_status("Line mode: Click points to draw lines")
+        else:
+            self.btn_line_mode.color = MONUMENTAL_TAUPE
+            self.btn_curve_mode.color = MONUMENTAL_ORANGE
+            self._update_status("Curve mode: Click start → control1 → control2 → end")
+
+        self._update_path_display()
+        self.fig.canvas.draw_idle()
+
     def _on_click(self, event):
         """Handle mouse click to add path points."""
         # Only process left clicks on the canvas
@@ -272,21 +351,171 @@ class PlotterGUI:
         # Validate point is within workspace
         try:
             validate_point(x, y)
-            self.path_points.append((x, y))
-            self._update_path_display()
-            self._update_status(f"Added point: ({x:.1f}, {y:.1f}) mm\n"
-                                f"Total points: {len(self.path_points)}")
+
+            if self.drawing_mode == 'Line':
+                # Line mode: create line segment from last end point to new point
+                if self.current_line_start is not None:
+                    # Create line segment
+                    segment = {
+                        'type': 'line',
+                        'start': self.current_line_start,
+                        'end': (x, y)
+                    }
+                    self.segments.append(segment)
+                    self._update_status(f"Line added: {self.current_line_start} → ({x:.1f}, {y:.1f})\n"
+                                        f"Total segments: {len(self.segments)}")
+                else:
+                    # First point in line mode
+                    self._update_status(f"Start point: ({x:.1f}, {y:.1f})\nClick next point")
+
+                # Update start point for next line
+                self.current_line_start = (x, y)
+                self._update_path_display()
+
+            else:
+                # Curve mode: collect 4 points for Bezier curve
+                if self.current_curve['start'] is None:
+                    self.current_curve['start'] = (x, y)
+                    self._update_status(f"Curve start: ({x:.1f}, {y:.1f})\nClick control point 1")
+                elif self.current_curve['control1'] is None:
+                    self.current_curve['control1'] = (x, y)
+                    self._update_status(f"Control 1: ({x:.1f}, {y:.1f})\nClick control point 2")
+                elif self.current_curve['control2'] is None:
+                    self.current_curve['control2'] = (x, y)
+                    self._update_status(f"Control 2: ({x:.1f}, {y:.1f})\nClick end point")
+                else:
+                    # Fourth click completes the curve
+                    self.current_curve['end'] = (x, y)
+
+                    # Store the completed curve segment
+                    segment = {
+                        'type': 'curve',
+                        'start': self.current_curve['start'],
+                        'end': self.current_curve['end'],
+                        'control1': self.current_curve['control1'],
+                        'control2': self.current_curve['control2']
+                    }
+                    self.segments.append(segment)
+
+                    self._update_status(f"Curve completed!\nTotal segments: {len(self.segments)}")
+
+                    # Reset for next curve
+                    self.current_curve = {
+                        'start': None,
+                        'control1': None,
+                        'control2': None,
+                        'end': None
+                    }
+
+                self._update_path_display()
+
         except ValueError as e:
             self._update_status(f"Invalid point: {e}", error=True)
 
     def _update_path_display(self):
         """Update the visualization of the current path."""
-        if len(self.path_points) > 0:
-            # Display origin-relative coordinates directly (no conversion)
-            points = np.array(self.path_points)
-            self.path_line.set_data(points[:, 0], points[:, 1])
+        from penplotter.path.bezier import generate_bezier_curve
+
+        # Collect all path points from completed segments
+        all_path_points = []
+        all_control_points = []
+        all_handle_lines = []
+
+        for segment in self.segments:
+            if segment['type'] == 'line':
+                # Add line segment endpoints
+                all_path_points.extend([segment['start'], segment['end']])
+            elif segment['type'] == 'curve':
+                # Generate curve visualization
+                curve_points = generate_bezier_curve(
+                    segment['start'],
+                    segment['end'],
+                    [segment['control1'], segment['control2']],
+                    num_samples=50
+                )
+                all_path_points.extend(curve_points)
+
+                # Add control points
+                all_control_points.extend([segment['control1'], segment['control2']])
+
+                # Add handle lines (start to control1, control2 to end)
+                all_handle_lines.extend([
+                    segment['start'], segment['control1'],
+                    [np.nan, np.nan],  # Break in line
+                    segment['control2'], segment['end'],
+                    [np.nan, np.nan]  # Break before next segment
+                ])
+
+        # Show completed segments
+        if all_path_points:
+            points_array = np.array(all_path_points)
+            self.path_line.set_data(points_array[:, 0], points_array[:, 1])
         else:
             self.path_line.set_data([], [])
+
+        # Show current drawing state
+        temp_points = []
+        temp_controls = []
+        temp_handles = []
+
+        if self.drawing_mode == 'Line' and self.current_line_start is not None:
+            # Show the current start point for the next line
+            temp_points.append(self.current_line_start)
+
+        elif self.drawing_mode == 'Curve':
+            # Show current curve being built
+            if self.current_curve['start'] is not None:
+                temp_points.append(self.current_curve['start'])
+
+                if self.current_curve['control1'] is not None:
+                    temp_controls.append(self.current_curve['control1'])
+                    temp_handles.extend([
+                        self.current_curve['start'],
+                        self.current_curve['control1']
+                    ])
+
+                if self.current_curve['control2'] is not None:
+                    temp_controls.append(self.current_curve['control2'])
+
+                # Show preview if we have enough points
+                if self.current_curve['control1'] is not None and self.current_curve['control2'] is not None:
+                    try:
+                        # Use control2 as temporary end if no end yet
+                        temp_end = self.current_curve['end'] if self.current_curve['end'] else self.current_curve['control2']
+                        preview_points = generate_bezier_curve(
+                            self.current_curve['start'],
+                            temp_end,
+                            [self.current_curve['control1'], self.current_curve['control2']],
+                            num_samples=30
+                        )
+                        if preview_points:
+                            preview_array = np.array(preview_points)
+                            self.curve_preview.set_data(preview_array[:, 0], preview_array[:, 1])
+                    except:
+                        self.curve_preview.set_data([], [])
+
+                    # Add handle to control2
+                    if self.current_curve['end']:
+                        temp_handles.extend([[np.nan, np.nan], self.current_curve['control2'], self.current_curve['end']])
+                        temp_points.append(self.current_curve['end'])
+
+        # Update current state visualizations
+        if temp_controls or all_control_points:
+            all_controls = all_control_points + temp_controls
+            control_array = np.array(all_controls)
+            self.control_points.set_data(control_array[:, 0], control_array[:, 1])
+        else:
+            self.control_points.set_data([], [])
+
+        if temp_handles or all_handle_lines:
+            all_handles = all_handle_lines + temp_handles
+            handle_array = np.array(all_handles)
+            self.control_handles.set_data(handle_array[:, 0], handle_array[:, 1])
+        else:
+            self.control_handles.set_data([], [])
+
+        if self.drawing_mode != 'Curve' or self.current_curve['start'] is None:
+            self.curve_preview.set_data([], [])
 
         self.fig.canvas.draw_idle()
 
@@ -376,17 +605,60 @@ class PlotterGUI:
     def _on_clear(self, event):
         """Handle clear button click."""
         if not self.is_drawing:
-            self.path_points = []
+            self.segments = []
+            self.current_line_start = None
+            self.current_curve = {
+                'start': None,
+                'control1': None,
+                'control2': None,
+                'end': None
+            }
             self._update_path_display()
-            self._update_status("Path cleared")
+            self._update_status("All segments cleared")
 
     def _on_undo(self, event):
         """Handle undo button click."""
-        if not self.is_drawing and len(self.path_points) > 0:
-            removed = self.path_points.pop()
-            self._update_path_display()
-            self._update_status(f"Removed point: ({removed[0]:.1f}, {removed[1]:.1f})\n"
-                                f"Remaining points: {len(self.path_points)}")
+        if not self.is_drawing:
+            if self.drawing_mode == 'Line':
+                # Undo in line mode: remove current start point or last segment
+                if self.current_line_start is not None:
+                    # Remove the pending start point
+                    self.current_line_start = None
+                    # Set start to the end of the last segment if exists
+                    if len(self.segments) > 0:
+                        last_seg = self.segments[-1]
+                        self.current_line_start = last_seg['end']
+                    self._update_status("Removed pending point. Click to continue from last position")
+                elif len(self.segments) > 0:
+                    # Remove last segment
+                    removed = self.segments.pop()
+                    if removed['type'] == 'line':
+                        # Set start point to the removed segment's start
+                        self.current_line_start = removed['start']
+                        self._update_status(f"Removed line segment. {len(self.segments)} segments remaining")
+                    else:
+                        self._update_status(f"Removed curve segment. {len(self.segments)} segments remaining")
+                self._update_path_display()
+
+            elif self.drawing_mode == 'Curve':
+                # Undo in curve mode: remove last control point or last segment
+                if self.current_curve['end'] is not None:
+                    self.current_curve['end'] = None
+                    self._update_status("Removed end point. Click end point")
+                elif self.current_curve['control2'] is not None:
+                    self.current_curve['control2'] = None
+                    self._update_status("Removed control point 2. Click control point 2")
+                elif self.current_curve['control1'] is not None:
+                    self.current_curve['control1'] = None
+                    self._update_status("Removed control point 1. Click control point 1")
+                elif self.current_curve['start'] is not None:
+                    self.current_curve['start'] = None
+                    self._update_status("Removed start point. Click start point")
+                elif len(self.segments) > 0:
+                    removed = self.segments.pop()
+                    seg_type = removed['type']
+                    self._update_status(f"Removed {seg_type} segment. {len(self.segments)} segments remaining")
+                self._update_path_display()
 
     def _on_home(self, event):
         """Handle home button click."""
@@ -406,20 +678,21 @@ class PlotterGUI:
             self._update_status("Error: Not connected to plotter", error=True)
             return
 
-        if len(self.path_points) < 2:
-            self._update_status("Error: Need at least 2 points to draw", error=True)
+        if len(self.segments) < 1:
+            self._update_status("Error: Need at least 1 segment to draw", error=True)
             return
 
         if self.is_drawing:
             return
 
-        # Calculate and print path statistics
-        stats = calculate_path_statistics(self.path_points)
+        # Print segment statistics
+        line_count = sum(1 for seg in self.segments if seg['type'] == 'line')
+        curve_count = sum(1 for seg in self.segments if seg['type'] == 'curve')
+
         print(f"\nPath Statistics:")
-        print(f"  Total length: {stats['total_length_mm']:.1f} mm")
-        print(f"  Segments: {stats['num_segments']}")
-        print(f"  Bounds: X=[{stats['min_x']:.1f}, {stats['max_x']:.1f}], "
-              f"Y=[{stats['min_y']:.1f}, {stats['max_y']:.1f}]")
+        print(f"  Total segments: {len(self.segments)}")
+        print(f"    Lines: {line_count}")
+        print(f"    Curves: {curve_count}")
 
         # Start drawing in a separate thread
         self.is_drawing = True
@@ -430,41 +703,61 @@ class PlotterGUI:
     def _execute_drawing(self):
         """Execute the drawing path with live actuator arm updates."""
         try:
-            # Create executor
-            executor = PathExecutor(self.plotter)
-            executor.set_path(self.path_points)
-
-            # Setup progress callback
-            start_time = time.time()
-
-            def on_position_update(current_pos, segment_progress):
-                """Called frequently during drawing for live position updates."""
-                # Update actuator arm in main GUI
-                if current_pos:
-                    self._update_actuator_display(current_pos[0], current_pos[1])
-
-            executor.set_progress_callback(on_position_update)
+            from penplotter.control.primitives import draw_line
+            from penplotter.control.curves import draw_curve
 
             # Home before drawing
             self._update_status("Homing plotter...")
             self.plotter.home()
             time.sleep(1)
 
-            # Execute the path
-            self._update_status("Drawing path...")
-            executor.execute()
+            # Setup progress callback for live position updates
+            def on_position_update(current_pos, segment_progress):
+                """Called frequently during drawing for live position updates."""
+                if current_pos:
+                    self._update_actuator_display(current_pos[0], current_pos[1])
 
-            # Print summary
-            executor.print_summary()
+            start_time = time.time()
+            self._update_status(f"Drawing {len(self.segments)} segments...")
+
+            # Draw each segment in order
+            for i, segment in enumerate(self.segments):
+                print(f"\nSegment {i+1}/{len(self.segments)} ({segment['type']})")
+
+                if segment['type'] == 'line':
+                    # Draw line segment with live position tracking
+                    draw_line(
+                        self.plotter,
+                        segment['start'],
+                        segment['end'],
+                        progress_callback=on_position_update
+                    )
+
+                elif segment['type'] == 'curve':
+                    # Draw curve segment with live position tracking
+                    draw_curve(
+                        self.plotter,
+                        segment['start'],
+                        segment['end'],
+                        [segment['control1'], segment['control2']],
+                        progress_callback=on_position_update
+                    )
+
+            end_time = time.time()
+            duration = end_time - start_time
+
+            # Count segment types
+            line_count = sum(1 for seg in self.segments if seg['type'] == 'line')
+            curve_count = sum(1 for seg in self.segments if seg['type'] == 'curve')
+
+            self._update_status(f"Drawing complete!\n"
+                                f"Drew {len(self.segments)} segments ({line_count} lines, {curve_count} curves) in "
+                                f"{duration:.1f}s")
 
             # Home after drawing
             self._update_status("Returning to home...")
             self.plotter.home()
             self._update_actuator_display(0, PEN_OFFSET_MM)
-
-            self._update_status(f"Drawing complete!\n"
-                                f"Executed {executor.completed_segments} segments in "
-                                f"{executor.total_execution_time:.1f}s")
 
         except Exception as e:
             self._update_status(f"Drawing failed: {e}", error=True)

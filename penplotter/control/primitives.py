@@ -18,6 +18,7 @@ def draw_line(
     start: Tuple[float, float],
     end: Tuple[float, float],
     step_size: float = None,
+    progress_callback=None,
 ) -> None:
     """Draw a straight line from start to end in Cartesian space.
 
@@ -38,6 +39,7 @@ def draw_line(
         step_size: Distance between interpolated points in mm.
                    Smaller values = smoother lines but slower.
                    Default: 5mm (from config)
+        progress_callback: Optional callback function(position, progress) for live updates
 
     Example:
         >>> with Plotter('/dev/ttyACM0') as p:
@@ -66,6 +68,11 @@ def draw_line(
         # Execute movements in rapid succession (overlapping execution)
         plotter.rotate(steps)
         plotter.linear(adc)
+
+        # Call progress callback for live position updates
+        if progress_callback:
+            progress = (i + 1) / len(points)
+            progress_callback((x, y), progress)
 
         # No delay - send commands as fast as possible
         # Note: If firmware can't keep up, add small delay (0.02-0.05s)

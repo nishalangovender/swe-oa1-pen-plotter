@@ -23,9 +23,9 @@ swe-oa1-pen-plotter/
 ├── penplotter/               # Python package
 │   ├── hardware/             # Serial communication
 │   ├── kinematics/           # Coordinate transforms
-│   ├── control/              # Drawing primitives and shapes
-│   ├── path/                 # Path interpolation
-│   ├── visualization/        # Interactive matplotlib GUI
+│   ├── control/              # Drawing primitives (lines, curves, shapes)
+│   ├── path/                 # Path interpolation and Bezier curve generation
+│   ├── visualization/        # Interactive matplotlib GUI with dual modes
 │   ├── data/                 # Path data structures
 │   └── config.py             # System configuration
 ├── run.sh                    # GUI launcher script
@@ -60,9 +60,12 @@ python -m penplotter
 ```
 
 **GUI Features:**
-- Click on canvas to add path points
+- **Dual Drawing Modes**: Toggle between Line and Curve modes
+- Click on canvas to add path points or Bezier curve control points
+- **Mixed Paths**: Combine straight lines and smooth curves in a single drawing
 - Connect to plotter via serial port (auto-detection available)
 - Live actuator arm visualization during execution
+- **Curve Visualization**: See Bezier handles and curve preview as you draw
 - Workspace boundary visualization
 - Path validation and statistics
 - Undo/Clear path controls
@@ -71,16 +74,19 @@ python -m penplotter
 **GUI Workflow:**
 1. Click "Detect" to auto-detect USB serial ports
 2. Click "Connect" to establish connection with plotter
-3. Click on canvas to add points to your drawing path
-4. Click "Execute" to draw the path on the physical plotter
-5. Use "Undo" to remove last point or "Clear Path" to start over
-6. Click "Home" to return plotter to home position
+3. Select drawing mode using "Line" or "Curve" buttons:
+   - **Line Mode**: Click points to draw connected straight lines
+   - **Curve Mode**: Click 4 points (start → control1 → control2 → end) to draw smooth Bezier curves
+4. Switch modes anytime to create mixed paths (lines + curves)
+5. Click "Execute" to draw the complete path on the physical plotter
+6. Use "Undo" to step back or "Clear Path" to start over
+7. Click "Home" to return plotter to home position
 
 ### Python API (Programmatic Control)
 
 ```python
 from penplotter.hardware import Plotter
-from penplotter.control import draw_line, draw_rectangle
+from penplotter.control import draw_line, draw_rectangle, draw_curve
 
 # Connect to the plotter
 with Plotter("/dev/tty.usbmodem1101") as plotter:
@@ -90,12 +96,27 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
     # Draw a straight line from (0, 100) to (50, 200)
     draw_line(plotter, start=(0, 100), end=(50, 200), step_size=1.0)
 
+    # Draw a Bezier curve with control points
+    draw_curve(
+        plotter,
+        start=(50, 200),
+        end=(100, 200),
+        control_points=[(60, 250), (90, 150)],
+        step_size=0.5
+    )
+
     # Draw a rectangle
     draw_rectangle(plotter, center=(0, 175), width=100, height=100, rotation=45)
 
     # Return to home
     plotter.home()
 ```
+
+**Drawing Functions:**
+- `draw_line(plotter, start, end, step_size)` - Draw a straight line
+- `draw_curve(plotter, start, end, control_points, step_size)` - Draw a cubic Bezier curve
+- `draw_rectangle(plotter, center, width, height, rotation)` - Draw a rectangle
+- `draw_smooth_path(plotter, points, tension, step_size)` - Draw smooth curves through waypoints
 
 ## Documentation
 

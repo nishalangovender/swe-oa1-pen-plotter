@@ -23,33 +23,43 @@ python -m penplotter
    - Click "Connect" to establish connection
    - Connection status indicator will turn green when connected
 
-2. **Create Drawing Path:**
-   - Click anywhere on the canvas to add path points
-   - Points are displayed with orange markers and connecting lines
+2. **Select Drawing Mode:**
+   - Use the "Line" or "Curve" toggle buttons to select drawing mode
+   - **Line Mode:** Click points to create connected straight lines
+   - **Curve Mode:** Click 4 points (start → control1 → control2 → end) to create smooth Bezier curves
+   - You can switch modes anytime to create mixed paths combining lines and curves
+
+3. **Create Drawing Path:**
+   - **Line Mode:** Click points on the canvas - each point connects to the previous one
+   - **Curve Mode:** Click 4 points to define a curve - you'll see handles and a preview as you click
+   - Points and curves are displayed with orange markers
    - The workspace boundary is shown with a dashed cream-colored rectangle
    - Invalid points (outside workspace) will show an error message
 
-3. **Edit Path:**
-   - Click "Undo Point" to remove the last added point
-   - Click "Clear Path" to remove all points and start over
+4. **Edit Path:**
+   - Click "Undo" to step back through your drawing (removes last point/segment)
+   - Click "Clear Path" to remove everything and start over
 
-4. **Execute Drawing:**
-   - Click "Execute" to start drawing the path on the physical plotter
+5. **Execute Drawing:**
+   - Click "Execute" to start drawing the complete path on the physical plotter
    - The actuator arm visualization will update in real-time as the plotter moves
-   - Path statistics (length, segments, bounds) are printed to console
+   - Path statistics (segments, line/curve counts) are printed to console
    - Drawing status is shown in the status panel
 
-5. **Home Plotter:**
+6. **Home Plotter:**
    - Click "Home" to return the plotter to its home position
    - The actuator arm visualization will update to show the home position
 
 ### GUI Features
 
+- **Dual Drawing Modes:** Toggle between straight lines and smooth Bezier curves
+- **Mixed Paths:** Combine lines and curves in a single drawing
 - **Live Visualization:** Real-time actuator arm position updates during drawing
+- **Curve Visualization:** See Bezier control handles and curve preview as you draw
 - **Workspace Boundaries:** Visual representation of valid drawing area
 - **Connection Status:** Color-coded indicator (gray=disconnected, green=connected, red=error)
 - **Path Validation:** Immediate feedback on point validity
-- **Path Statistics:** Total length, segment count, and bounding box information
+- **Path Statistics:** Segment counts and type breakdown
 - **Auto-Port Detection:** Automatic detection of USB serial devices
 
 ## Python API Examples
@@ -65,6 +75,69 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
 
     # Draw a diagonal line
     draw_line(plotter, start=(0, 200), end=(50, 300), step_size=1.0)
+
+    plotter.home()
+```
+
+### Curve Drawing
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.control.curves import draw_curve
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Draw a smooth Bezier curve
+    draw_curve(
+        plotter,
+        start=(0, 200),                    # Start point
+        end=(100, 200),                    # End point
+        control_points=[(25, 250), (75, 150)],  # Two control points
+        step_size=0.5                      # Interpolation step size (default: 0.5mm)
+    )
+
+    plotter.home()
+```
+
+### Circle Drawing (Using Bezier Curves)
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.control.curves import draw_curve
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Circle parameters
+    center_x, center_y = 0, 250
+    radius = 50
+
+    # Magic constant for circular Bezier approximation
+    k = 0.5522847498  # 4/3 * (sqrt(2) - 1)
+    control_offset = radius * k
+
+    # Draw circle using 4 Bezier curves (one per quadrant)
+
+    # Top-right quadrant
+    draw_curve(plotter, (center_x + radius, center_y), (center_x, center_y + radius),
+               [(center_x + radius, center_y + control_offset),
+                (center_x + control_offset, center_y + radius)])
+
+    # Top-left quadrant
+    draw_curve(plotter, (center_x, center_y + radius), (center_x - radius, center_y),
+               [(center_x - control_offset, center_y + radius),
+                (center_x - radius, center_y + control_offset)])
+
+    # Bottom-left quadrant
+    draw_curve(plotter, (center_x - radius, center_y), (center_x, center_y - radius),
+               [(center_x - radius, center_y - control_offset),
+                (center_x - control_offset, center_y - radius)])
+
+    # Bottom-right quadrant
+    draw_curve(plotter, (center_x, center_y - radius), (center_x + radius, center_y),
+               [(center_x + control_offset, center_y - radius),
+                (center_x + radius, center_y - control_offset)])
 
     plotter.home()
 ```
@@ -87,6 +160,27 @@ with Plotter("/dev/tty.usbmodem1101") as plotter:
         rotation=45,        # Rotation angle in degrees
         step_size=1.0       # Interpolation step size
     )
+
+    plotter.home()
+```
+
+### Mixed Line and Curve Drawing
+
+```python
+from penplotter.hardware import Plotter
+from penplotter.control import draw_line, draw_curve
+
+with Plotter("/dev/tty.usbmodem1101") as plotter:
+    plotter.home()
+
+    # Draw a straight line
+    draw_line(plotter, (0, 200), (50, 200))
+
+    # Continue with a curve from where the line ended
+    draw_curve(plotter, (50, 200), (100, 200), [(60, 250), (90, 150)])
+
+    # Add another line
+    draw_line(plotter, (100, 200), (100, 300))
 
     plotter.home()
 ```
